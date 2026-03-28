@@ -1,6 +1,7 @@
 #include "geometry.hpp"
 
 #include <cmath>
+#include <map>
 
 namespace atpps {
 
@@ -33,10 +34,34 @@ double ComputeTotalSignedArea(const Polygon& polygon) {
 }
 
 double ComputeTotalArealDisplacement(const Polygon& inputPolygon, const Polygon& outputPolygon) {
-    // This stays as a stable placeholder until displacement logic is added in a focused commit
-    (void)inputPolygon;
-    (void)outputPolygon;
-    return 0.0;
+    // This maps ring id to signed area so we can compare matching rings deterministically
+    std::map<int, double> inputAreaByRing;
+    for (const Ring& ring : inputPolygon.rings) {
+        inputAreaByRing[ring.ringId] = ComputeSignedArea(ring);
+    }
+
+    // This maps output ring areas with the same ring id key space
+    std::map<int, double> outputAreaByRing;
+    for (const Ring& ring : outputPolygon.rings) {
+        outputAreaByRing[ring.ringId] = ComputeSignedArea(ring);
+    }
+
+    // This accumulates absolute area delta per ring as a stable baseline metric
+    double totalDisplacement = 0.0;
+    for (const auto& [ringId, inputArea] : inputAreaByRing) {
+        const auto outputIt = outputAreaByRing.find(ringId);
+        const double outputArea = (outputIt != outputAreaByRing.end()) ? outputIt->second : 0.0;
+        totalDisplacement += std::abs(inputArea - outputArea);
+    }
+
+    // This also accounts for rings that only exist in output data
+    for (const auto& [ringId, outputArea] : outputAreaByRing) {
+        if (inputAreaByRing.find(ringId) == inputAreaByRing.end()) {
+            totalDisplacement += std::abs(outputArea);
+        }
+    }
+
+    return totalDisplacement;
 }
 
 std::size_t CountTotalVertices(const Polygon& polygon) {

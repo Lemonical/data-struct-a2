@@ -28,7 +28,7 @@ double ComputeSignedArea(const Ring& ring);
 // This accumulates signed area across every ring in the polygon
 double ComputeTotalSignedArea(const Polygon& polygon);
 
-// This is a placeholder for assignment areal displacement and will be implemented in a later commit
+// This computes a foundational displacement metric from per-ring signed-area deltas
 double ComputeTotalArealDisplacement(const Polygon& inputPolygon, const Polygon& outputPolygon);
 
 // This counts all vertices across all rings for target loop control
