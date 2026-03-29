@@ -14,7 +14,7 @@ struct SimplificationResult {
     std::size_t finalVertexCount = 0U;
 };
 
-// This performs simplification and is stubbed in commit 1 for pipeline wiring
+// This performs deterministic topology-safe simplification toward a target vertex count
 SimplificationResult SimplifyPolygonToTarget(
     const Polygon& inputPolygon,
     std::size_t targetVertices,
