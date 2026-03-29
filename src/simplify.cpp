@@ -2,6 +2,9 @@
 
 #include <cmath>
 #include <limits>
+#include <map>
+#include <sstream>
+#include <vector>
 
 #include "geometry.hpp"
 #include "validation.hpp"
@@ -10,6 +13,15 @@ namespace {
 
 // This epsilon keeps tie-break comparisons stable when doubles are nearly equal
 constexpr double kEpsilon = 1e-12;
+
+// This tolerance controls ring-area restoration stop criteria in relative terms
+constexpr double kAreaRestoreRelativeTolerance = 1e-9;
+
+// This tolerance guards very small absolute area differences near zero-area limits
+constexpr double kAreaRestoreAbsoluteTolerance = 1e-9;
+
+// This cap keeps the restoration pass deterministic and bounded
+constexpr std::size_t kMaxAreaRestoreIterations = 12U;
 
 // This captures one removable-vertex option with deterministic ordering fields
 struct RemovalCandidate {
@@ -164,6 +176,176 @@ bool FindBestLegalRemoval(const atpps::Polygon& polygon, RemovalCandidate& bestC
     return foundAny;
 }
 
+// This computes arithmetic-mean center used as a stable scaling pivot for one ring
+atpps::Point ComputeRingCentroid(const atpps::Ring& ring) {
+    atpps::Point centroid;
+    if (ring.vertices.empty()) {
+        return centroid;
+    }
+
+    for (const atpps::Point& point : ring.vertices) {
+        centroid.x += point.x;
+        centroid.y += point.y;
+    }
+
+    const double invCount = 1.0 / static_cast<double>(ring.vertices.size());
+    centroid.x *= invCount;
+    centroid.y *= invCount;
+    return centroid;
+}
+
+// This returns a ring scaled around a center so signed area changes while local shape stays similar
+atpps::Ring ScaleRingAroundCenter(const atpps::Ring& ring, const atpps::Point& center, const double scale) {
+    atpps::Ring scaled = ring;
+    for (atpps::Point& point : scaled.vertices) {
+        point.x = center.x + (point.x - center.x) * scale;
+        point.y = center.y + (point.y - center.y) * scale;
+    }
+    return scaled;
+}
+
+// This checks whether two signed-area values are close enough under mixed relative and absolute tolerance
+bool AreasCloseEnough(const double lhs, const double rhs) {
+    const double delta = std::abs(lhs - rhs);
+    const double scale = std::max(std::abs(lhs), std::max(std::abs(rhs), 1.0));
+    return delta <= (kAreaRestoreAbsoluteTolerance + kAreaRestoreRelativeTolerance * scale);
+}
+
+// This appends one note fragment while preserving a single-line stderr note style
+void AppendNoteMessage(std::string& noteMessage, const std::string& fragment) {
+    if (fragment.empty()) {
+        return;
+    }
+
+    if (!noteMessage.empty()) {
+        noteMessage += " | ";
+    }
+    noteMessage += fragment;
+}
+
+// This attempts deterministic safe ring-area restoration by iterative damped scaling with topology checks
+bool RestoreRingAreaSafely(
+    atpps::Polygon& polygon,
+    const std::size_t ringIndex,
+    const double targetSignedArea,
+    std::string& failureReason
+) {
+    atpps::Ring& ring = polygon.rings[ringIndex];
+
+    // This keeps restoration logic safe for non-polygonal rings
+    if (ring.vertices.size() < 3U) {
+        failureReason = "ring has fewer than 3 vertices";
+        return false;
+    }
+
+    // This uses one stable pivot so repeated scaling stays deterministic
+    const atpps::Point center = ComputeRingCentroid(ring);
+
+    // This uses deterministic damping steps from full correction toward conservative updates
+    const double dampingFactors[] = {1.0, 0.5, 0.25, 0.125, 0.0625};
+
+    for (std::size_t iteration = 0U; iteration < kMaxAreaRestoreIterations; ++iteration) {
+        const double currentArea = atpps::ComputeSignedArea(ring);
+        if (AreasCloseEnough(currentArea, targetSignedArea)) {
+            failureReason.clear();
+            return true;
+        }
+
+        // This avoids unstable correction when area sign is incompatible with target sign
+        if (currentArea * targetSignedArea <= 0.0) {
+            failureReason = "current and target ring signed areas have incompatible signs";
+            return false;
+        }
+
+        // This avoids division by very small area values that would explode scaling factors
+        if (std::abs(currentArea) <= kEpsilon) {
+            failureReason = "current ring area is too close to zero for stable scaling";
+            return false;
+        }
+
+        const double idealScale = std::sqrt(std::abs(targetSignedArea / currentArea));
+
+        bool foundImprovement = false;
+        atpps::Ring bestRing = ring;
+        double bestError = std::abs(currentArea - targetSignedArea);
+
+        for (const double damping : dampingFactors) {
+            const double candidateScale = 1.0 + damping * (idealScale - 1.0);
+
+            // This rejects collapsed or flipped scaling factors before geometry checks
+            if (candidateScale <= kEpsilon) {
+                continue;
+            }
+
+            atpps::Polygon candidatePolygon = polygon;
+            candidatePolygon.rings[ringIndex] = ScaleRingAroundCenter(ring, center, candidateScale);
+
+            std::string topologyError;
+            if (!atpps::ValidatePolygonTopology(candidatePolygon, topologyError)) {
+                continue;
+            }
+
+            const double candidateArea = atpps::ComputeSignedArea(candidatePolygon.rings[ringIndex]);
+            const double candidateError = std::abs(candidateArea - targetSignedArea);
+
+            // This accepts only strict improvement so iteration progress is monotonic
+            if (candidateError + kEpsilon < bestError) {
+                bestError = candidateError;
+                bestRing = candidatePolygon.rings[ringIndex];
+                foundImprovement = true;
+            }
+        }
+
+        // This reports constrained restoration when no safe improving step exists
+        if (!foundImprovement) {
+            failureReason = "no topology-safe scaling improvement found";
+            return false;
+        }
+
+        ring = bestRing;
+    }
+
+    const double finalArea = atpps::ComputeSignedArea(ring);
+    if (AreasCloseEnough(finalArea, targetSignedArea)) {
+        failureReason.clear();
+        return true;
+    }
+
+    failureReason = "iteration cap reached before meeting area tolerance";
+    return false;
+}
+
+// This restores ring signed areas toward input targets and records constrained-stop diagnostics
+void RestorePolygonRingAreas(const atpps::Polygon& inputPolygon, atpps::Polygon& simplifiedPolygon, std::string& noteMessage) {
+    std::map<int, double> targetAreaByRingId;
+    for (const atpps::Ring& ring : inputPolygon.rings) {
+        targetAreaByRingId[ring.ringId] = atpps::ComputeSignedArea(ring);
+    }
+
+    for (std::size_t ringIndex = 0U; ringIndex < simplifiedPolygon.rings.size(); ++ringIndex) {
+        const int ringId = simplifiedPolygon.rings[ringIndex].ringId;
+        const auto targetAreaIt = targetAreaByRingId.find(ringId);
+        if (targetAreaIt == targetAreaByRingId.end()) {
+            AppendNoteMessage(noteMessage, "ring " + std::to_string(ringId) + " has no input area target");
+            continue;
+        }
+
+        const double targetArea = targetAreaIt->second;
+        const double currentArea = atpps::ComputeSignedArea(simplifiedPolygon.rings[ringIndex]);
+        if (AreasCloseEnough(currentArea, targetArea)) {
+            continue;
+        }
+
+        std::string failureReason;
+        const bool restored = RestoreRingAreaSafely(simplifiedPolygon, ringIndex, targetArea, failureReason);
+        if (!restored) {
+            std::ostringstream message;
+            message << "ring " << ringId << " area restoration constrained: " << failureReason;
+            AppendNoteMessage(noteMessage, message.str());
+        }
+    }
+}
+
 }  // namespace
 
 namespace atpps {
@@ -199,6 +381,9 @@ SimplificationResult SimplifyPolygonToTarget(
         result.polygon = ApplyRemoval(result.polygon, bestCandidate);
         currentVertices = CountTotalVertices(result.polygon);
     }
+
+    // This performs post-adjustment to restore per-ring signed areas when safe
+    RestorePolygonRingAreas(inputPolygon, result.polygon, noteMessage);
 
     result.finalVertexCount = currentVertices;
     result.reachedExactTarget = (result.finalVertexCount == targetVertices);
