@@ -2,27 +2,78 @@
 
 #include <cmath>
 
+/**
+ * @file validation.cpp
+ * @brief Topological validation utilities for polygon simplification.
+ * @author Muhammad Nur Fadzly Bin Zulkifli
+ * @co-author Ranvitha Shyamala Devi
+ * This module ensures that polygons remain valid under simplification by enforcing:
+ * - No self-intersections
+ * - No inter-ring intersections
+ * - No degenerate edges or duplicate vertices
+ *
+ * All geometric predicates are implemented with floating-point tolerance
+ * to ensure numerical robustness.
+ */
+
 namespace {
 
 // This epsilon keeps orientation and equality checks stable under floating-point noise
 constexpr double kEpsilon = 1e-9;
 
 // This compares scalars with a symmetric tolerance window
+/**
+ * @brief Compare two floating-point values with tolerance.
+ *
+ * Uses a symmetric epsilon window to determine approximate equality.
+ *
+ * @param lhs Left-hand side value
+ * @param rhs Right-hand side value
+ * @return true if values are approximately equal
+ */
 bool NearlyEqual(const double lhs, const double rhs) {
     return std::abs(lhs - rhs) <= kEpsilon;
 }
 
 // This compares coordinates so geometric predicates can treat near-identical points as equal
+/**
+ * @brief Compare two 2D points with tolerance.
+ *
+ * Ensures geometric predicates treat near-identical coordinates as equal.
+ *
+ * @param lhs First point
+ * @param rhs Second point
+ * @return true if both coordinates are approximately equal
+ */
 bool PointsEqual(const atpps::Point& lhs, const atpps::Point& rhs) {
     return NearlyEqual(lhs.x, rhs.x) && NearlyEqual(lhs.y, rhs.y);
 }
 
 // This computes the oriented area factor for triangle a-b-c
+/**
+ * @brief Compute orientation determinant of triangle (a, b, c).
+ *
+ * Positive → counter-clockwise
+ * Negative → clockwise
+ * Zero     → collinear (within floating-point tolerance handled elsewhere)
+ *
+ * @return Signed area * 2 (orientation value)
+ */
 double OrientationValue(const atpps::Point& a, const atpps::Point& b, const atpps::Point& c) {
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
 // This classifies orientation sign with tolerance to avoid unstable branch flips
+/**
+ * @brief Classify orientation with tolerance.
+ *
+ * Converts raw orientation value into a stable discrete classification.
+ *
+ * @return
+ *  +1 → counter-clockwise
+ *  -1 → clockwise
+ *   0 → collinear (within epsilon)
+ */
 int OrientationSign(const atpps::Point& a, const atpps::Point& b, const atpps::Point& c) {
     const double value = OrientationValue(a, b, c);
     if (value > kEpsilon) {
@@ -35,6 +86,13 @@ int OrientationSign(const atpps::Point& a, const atpps::Point& b, const atpps::P
 }
 
 // This checks whether p lies on segment a-b including endpoints under tolerance
+/**
+ * @brief Check if point p lies on segment [a, b].
+ *
+ * Includes endpoints and uses tolerance to handle floating-point drift.
+ *
+ * @note Assumes collinearity is checked using OrientationSign.
+ */
 bool IsPointOnSegment(const atpps::Point& p, const atpps::Point& a, const atpps::Point& b) {
     if (OrientationSign(a, b, p) != 0) {
         return false;
@@ -51,6 +109,16 @@ bool IsPointOnSegment(const atpps::Point& p, const atpps::Point& a, const atpps:
 }
 
 // This returns true for proper intersections and collinear overlap/touch cases
+/**
+ * @brief Check if two line segments intersect.
+ *
+ * Handles:
+ * - Proper intersections
+ * - Collinear overlaps
+ * - Endpoint touching
+ *
+ * @return true if segments intersect in any way
+ */
 bool SegmentsIntersect(
     const atpps::Point& a1,
     const atpps::Point& a2,
@@ -83,6 +151,12 @@ bool SegmentsIntersect(
 }
 
 // This identifies adjacency where shared endpoints are expected in a simple closed ring
+/**
+ * @brief Check if two edges in a ring are adjacent.
+ *
+ * Adjacent edges share a vertex and are allowed to "intersect"
+ * at endpoints in a valid polygon.
+ */
 bool AreAdjacentEdgeIndices(const std::size_t edgeA, const std::size_t edgeB, const std::size_t edgeCount) {
     if (edgeA == edgeB) {
         return true;
@@ -100,6 +174,16 @@ bool AreAdjacentEdgeIndices(const std::size_t edgeA, const std::size_t edgeB, co
 }
 
 // This validates local ring hygiene before expensive intersection passes
+/**
+ * @brief Validate basic structural correctness of a ring.
+ *
+ * Checks:
+ * - Minimum vertex count (>= 3)
+ * - No zero-length edges
+ * - No duplicate non-adjacent vertices
+ *
+ * @param errorMessage Populated with failure reason
+ */
 bool ValidateRingPrimitiveShape(const atpps::Ring& ring, std::string& errorMessage) {
     // This enforces minimum ring size so closed-edge logic remains valid
     if (ring.vertices.size() < 3U) {
@@ -138,6 +222,11 @@ bool ValidateRingPrimitiveShape(const atpps::Ring& ring, std::string& errorMessa
 }
 
 // This checks one ring against itself while ignoring expected adjacent-edge endpoint touches
+/**
+ * @brief Check for self-intersections within a ring.
+ *
+ * Ignores adjacent edges since they share endpoints by definition.
+ */
 bool ValidateRingSelfIntersection(const atpps::Ring& ring, std::string& errorMessage) {
     const std::size_t edgeCount = ring.vertices.size();
 
@@ -164,6 +253,11 @@ bool ValidateRingSelfIntersection(const atpps::Ring& ring, std::string& errorMes
 }
 
 // This checks edge intersections between two different rings
+/**
+ * @brief Check intersections between two different rings.
+ *
+ * Ensures no edges from separate rings intersect.
+ */
 bool ValidateInterRingIntersection(const atpps::Ring& lhs, const atpps::Ring& rhs, std::string& errorMessage) {
     const std::size_t lhsCount = lhs.vertices.size();
     const std::size_t rhsCount = rhs.vertices.size();
@@ -190,6 +284,17 @@ bool ValidateInterRingIntersection(const atpps::Ring& lhs, const atpps::Ring& rh
 
 namespace atpps {
 
+/**
+ * @brief Validate full polygon topology.
+ *
+ * Performs:
+ * 1. Per-ring validation (shape + self-intersection)
+ * 2. Inter-ring intersection checks
+ *
+ * @param polygon Input polygon with multiple rings
+ * @param errorMessage Output error description on failure
+ * @return true if polygon is topologically valid
+ */
 bool ValidatePolygonTopology(const Polygon& polygon, std::string& errorMessage) {
     // This validates each ring primitive shape and self-intersection constraints first
     for (const Ring& ring : polygon.rings) {
