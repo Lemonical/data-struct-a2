@@ -34,9 +34,6 @@ double ComputeTotalRingAreaDrift(const Polygon& inputPolygon, const Polygon& out
 // This computes a deterministic bidirectional vertex-to-segment displacement proxy between matching rings
 double ComputeBidirectionalVertexDisplacementProxy(const Polygon& inputPolygon, const Polygon& outputPolygon);
 
-// This legacy wrapper keeps compatibility with older call sites that still use the old name
-double ComputeTotalArealDisplacement(const Polygon& inputPolygon, const Polygon& outputPolygon);
-
 // This counts all vertices across all rings for target loop control
 std::size_t CountTotalVertices(const Polygon& polygon);
 

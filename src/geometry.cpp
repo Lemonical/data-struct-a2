@@ -143,11 +143,6 @@ double ComputeBidirectionalVertexDisplacementProxy(const Polygon& inputPolygon, 
     return total;
 }
 
-double ComputeTotalArealDisplacement(const Polygon& inputPolygon, const Polygon& outputPolygon) {
-    // This keeps compatibility with historical call sites while returning ring-area drift semantics
-    return ComputeTotalRingAreaDrift(inputPolygon, outputPolygon);
-}
-
 std::size_t CountTotalVertices(const Polygon& polygon) {
     // This sums all ring vertex counts for global target handling
     std::size_t total = 0U;
