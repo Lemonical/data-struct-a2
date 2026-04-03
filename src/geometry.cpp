@@ -4,9 +4,31 @@
 #include <limits>
 #include <map>
 
+/*!
+@file geometry.cpp
+@author Muhammad Nur Fadzly Bin Zulkifli
+@co-author Ranvitha Shyamala Devi
+Geometry Metrics Implementation
+@date 2026-04-03
+@brief
+This file implements geometry-related metrics used for polygon simplification
+and evaluation. It includes area calculations, displacement metrics, and
+utility distance functions. Rings are treated as implicitly closed, meaning
+that the last vertex connects back to the first.
+
+The implementation focuses on:
+- Deterministic behavior (using ordered maps and stable iteration)
+- Numerical stability (squared distances where possible)
+- Robust handling of degenerate and edge cases
+*/
+
 namespace {
 
 // This computes squared point-to-point distance as a base for segment projection distance
+//------------------------------------------------------------------------------
+// Computes squared Euclidean distance between two points.
+// Using squared distance avoids unnecessary sqrt computations for efficiency.
+//------------------------------------------------------------------------------
 double SquaredPointDistance(const atpps::Point& lhs, const atpps::Point& rhs) {
     const double dx = lhs.x - rhs.x;
     const double dy = lhs.y - rhs.y;
@@ -14,6 +36,11 @@ double SquaredPointDistance(const atpps::Point& lhs, const atpps::Point& rhs) {
 }
 
 // This computes squared distance from point p to segment a-b with endpoint clamping
+//------------------------------------------------------------------------------
+// Computes squared distance from point p to segment a-b.
+// Projection is clamped to segment endpoints.
+// Handles degenerate segments (a == b).
+//------------------------------------------------------------------------------
 double SquaredDistanceToSegment(const atpps::Point& p, const atpps::Point& a, const atpps::Point& b) {
     const double dx = b.x - a.x;
     const double dy = b.y - a.y;
@@ -29,6 +56,11 @@ double SquaredDistanceToSegment(const atpps::Point& p, const atpps::Point& a, co
 }
 
 // This sums per-vertex nearest-segment distances from source ring to reference ring boundary
+//------------------------------------------------------------------------------
+// Computes sum of distances from each vertex in source ring to the closest
+// segment in the reference ring boundary.
+// This is used as a proxy for geometric displacement.
+//------------------------------------------------------------------------------
 double SumVertexToBoundaryDistances(const atpps::Ring& source, const atpps::Ring& reference) {
     if (source.vertices.empty() || reference.vertices.size() < 2U) {
         return 0.0;
@@ -56,6 +88,11 @@ double SumVertexToBoundaryDistances(const atpps::Ring& source, const atpps::Ring
 
 namespace atpps {
 
+//------------------------------------------------------------------------------
+// Computes signed area of a ring using the shoelace formula.
+// Positive area indicates counterclockwise ordering.
+// Negative area indicates clockwise ordering.
+//------------------------------------------------------------------------------
 double ComputeSignedArea(const Ring& ring) {
     // This guards against degenerate rings so stats stay predictable
     if (ring.vertices.size() < 3U) {
@@ -75,6 +112,10 @@ double ComputeSignedArea(const Ring& ring) {
     return 0.5 * twiceArea;
 }
 
+
+//------------------------------------------------------------------------------
+// Computes total signed area across all rings in a polygon.
+//------------------------------------------------------------------------------
 double ComputeTotalSignedArea(const Polygon& polygon) {
     // This folds per-ring signed area into one total metric
     double total = 0.0;
@@ -84,6 +125,10 @@ double ComputeTotalSignedArea(const Polygon& polygon) {
     return total;
 }
 
+//------------------------------------------------------------------------------
+// Computes total area drift between input and output polygons.
+// Drift is calculated per ring using absolute difference of signed areas.
+//------------------------------------------------------------------------------
 double ComputeTotalRingAreaDrift(const Polygon& inputPolygon, const Polygon& outputPolygon) {
     // This maps ring id to signed area so we can compare ring-wise area drift deterministically
     std::map<int, double> inputAreaByRing;
@@ -114,7 +159,10 @@ double ComputeTotalRingAreaDrift(const Polygon& inputPolygon, const Polygon& out
 
     return totalDrift;
 }
-
+//------------------------------------------------------------------------------
+// Computes symmetric vertex displacement proxy between two polygons.
+// Measures how far vertices in one polygon deviate from the other.
+//------------------------------------------------------------------------------
 double ComputeBidirectionalVertexDisplacementProxy(const Polygon& inputPolygon, const Polygon& outputPolygon) {
     // This maps rings by id so displacement proxy stays deterministic under ring ordering
     std::map<int, const Ring*> inputByRingId;
@@ -143,11 +191,17 @@ double ComputeBidirectionalVertexDisplacementProxy(const Polygon& inputPolygon, 
     return total;
 }
 
+//------------------------------------------------------------------------------
+// Wrapper function for compatibility with existing interfaces.
+//------------------------------------------------------------------------------
+
 double ComputeTotalArealDisplacement(const Polygon& inputPolygon, const Polygon& outputPolygon) {
     // This keeps compatibility with historical call sites while returning ring-area drift semantics
     return ComputeTotalRingAreaDrift(inputPolygon, outputPolygon);
 }
-
+//------------------------------------------------------------------------------
+// Counts total number of vertices across all rings in a polygon.
+//------------------------------------------------------------------------------
 std::size_t CountTotalVertices(const Polygon& polygon) {
     // This sums all ring vertex counts for global target handling
     std::size_t total = 0U;

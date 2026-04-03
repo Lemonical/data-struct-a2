@@ -11,16 +11,42 @@
 #include <unordered_set>
 #include <vector>
 
+/*!
+@file io_csv.cpp
+@author Muhammad Nur Fadzly Bin Zulkifli
+@co-author Ranvitha Shyamala Devi
+@date 2026-04-03
+@brief
+This file implements CSV parsing and writing for polygon data.
+
+The CSV format follows the assignment specification:
+    ring_id,vertex_id,x,y
+
+Key design goals:
+- Deterministic parsing and output ordering
+- Robust validation of input data
+- Graceful error handling with descriptive messages
+- Clean and consistent formatting of floating-point values
+*/
+
 namespace atpps {
 
 namespace {
 
+//------------------------------------------------------------------------------
+// Internal representation of a CSV row before constructing a ring.
+// Stores vertex_id and corresponding point.
+//------------------------------------------------------------------------------
 struct CsvVertexRow {
     int vertexId = -1;
     Point point;
 };
 
 // This trims whitespace and trailing carriage returns from CSV fields
+//------------------------------------------------------------------------------
+// Trims leading and trailing whitespace (including carriage returns).
+// Ensures robust parsing even with inconsistent CSV formatting.
+//------------------------------------------------------------------------------
 std::string TrimCopy(const std::string& value) {
     std::size_t start = 0U;
     while (start < value.size() && std::isspace(static_cast<unsigned char>(value[start])) != 0) {
@@ -36,6 +62,10 @@ std::string TrimCopy(const std::string& value) {
 }
 
 // This splits one CSV line without handling quoted commas because test data is numeric only
+//------------------------------------------------------------------------------
+// Splits a CSV line by commas.
+// Note: Does NOT support quoted fields (not needed for numeric dataset).
+//------------------------------------------------------------------------------
 std::vector<std::string> SplitCsvLine(const std::string& line) {
     std::vector<std::string> fields;
     std::stringstream stream(line);
@@ -47,6 +77,10 @@ std::vector<std::string> SplitCsvLine(const std::string& line) {
 }
 
 // This validates the known assignment header fields while allowing whitespace around commas
+//------------------------------------------------------------------------------
+// Validates that the CSV header matches expected format.
+// Allows whitespace variations.
+//------------------------------------------------------------------------------
 bool IsExpectedHeader(const std::string& headerLine) {
     const std::vector<std::string> fields = SplitCsvLine(headerLine);
     if (fields.size() != 4U) {
@@ -60,6 +94,10 @@ bool IsExpectedHeader(const std::string& headerLine) {
 }
 
 // This prints coordinates with expected-style significant digits while keeping compact decimal text
+//------------------------------------------------------------------------------
+// Formats floating-point coordinates for CSV output.
+// Uses up to 10 significant digits and removes negative zero.
+//------------------------------------------------------------------------------
 std::string FormatCoordinate(const double value) {
     std::ostringstream stream;
     stream << std::setprecision(10) << std::defaultfloat << value;
@@ -74,6 +112,10 @@ std::string FormatCoordinate(const double value) {
 
 }  // namespace
 
+//------------------------------------------------------------------------------
+// Loads polygon data from a CSV file.
+// Returns false on failure and provides an error message.
+//------------------------------------------------------------------------------
 bool LoadPolygonCsv(const std::string& filePath, Polygon& polygon, std::string& errorMessage) {
     // This resets output so callers never observe partial state on failures
     polygon.rings.clear();
@@ -162,6 +204,10 @@ bool LoadPolygonCsv(const std::string& filePath, Polygon& polygon, std::string& 
     return true;
 }
 
+//------------------------------------------------------------------------------
+// Writes polygon data to CSV format.
+// Output is deterministic and follows assignment specification.
+//------------------------------------------------------------------------------
 void WritePolygonCsv(std::ostream& output, const Polygon& polygon) {
     // This prints the assignment-required CSV header first
     output << "ring_id,vertex_id,x,y\n";

@@ -14,6 +14,27 @@
 #include "geometry.hpp"
 #include "validation.hpp"
 
+/*!
+@file simplify.cpp
+@author Muhammad Nur Fadzly Bin Zulkifli
+@date 2026-04-03
+@brief
+This file implements the core polygon simplification algorithm.
+
+The algorithm supports:
+- Single-ring simplification (fast heap-based + pair-collapse methods)
+- Multi-ring simplification with containment preservation
+- Deterministic behavior via strict ordering and tie-breaking
+- Configurable heuristics via environment variables
+
+Key design principles:
+- Numerical robustness (epsilon-based comparisons)
+- Deterministic output (stable ordering and tie-breaking)
+- Topology preservation (optional validation and containment checks)
+- Performance scalability (heap-based and bounded search strategies)
+*/
+
+
 namespace {
 
 // This epsilon keeps tie-break comparisons stable when doubles are nearly equal
@@ -29,6 +50,9 @@ constexpr double kAreaRestoreAbsoluteTolerance = 1e-9;
 constexpr std::size_t kMaxAreaRestoreIterations = 12U;
 
 // This captures one removable-vertex option with deterministic ordering fields
+//------------------------------------------------------------------------------
+// Represents a candidate for vertex removal in simplification.
+//------------------------------------------------------------------------------
 struct RemovalCandidate {
     std::size_t ringIndex = 0U;
     std::size_t vertexIndex = 0U;
@@ -39,6 +63,9 @@ struct RemovalCandidate {
 };
 
 // This stores one pair-collapse option where two neighbors are replaced by one computed point
+//------------------------------------------------------------------------------
+// Represents a pair-collapse operation (B,C -> E).
+//------------------------------------------------------------------------------
 struct PairCollapseCandidate {
     std::size_t ringIndex = 0U;
     std::size_t indexB = 0U;
@@ -51,6 +78,9 @@ struct PairCollapseCandidate {
 };
 
 // This carries one lazy heap entry for the single-ring fast simplification mode
+//------------------------------------------------------------------------------
+// Heap candidate for efficient lazy evaluation (single-ring case).
+//------------------------------------------------------------------------------
 struct HeapCandidate {
     std::size_t vertexIndex = 0U;
     std::size_t generation = 0U;
@@ -60,6 +90,7 @@ struct HeapCandidate {
 };
 
 // This carries one lazy heap entry for single-ring pair-collapse simplification
+
 struct SingleRingPairCandidate {
     std::size_t indexB = 0U;
     std::size_t generationB = 0U;
@@ -73,6 +104,9 @@ struct SingleRingPairCandidate {
 };
 
 // This stores optional trace output state so normal runs remain unchanged
+//------------------------------------------------------------------------------
+// Optional trace state for debugging simplification decisions.
+//------------------------------------------------------------------------------
 struct TraceState {
     bool initialized = false;
     bool enabled = false;
@@ -143,6 +177,9 @@ std::string FormatRingForTrace(const atpps::Ring& ring) {
 }
 
 // This computes squared distance from p to segment a-b for local shape-error scoring
+//------------------------------------------------------------------------------
+// Computes squared distance from point to segment.
+//------------------------------------------------------------------------------
 double SquaredDistanceToSegment(const atpps::Point& p, const atpps::Point& a, const atpps::Point& b) {
     const double dx = b.x - a.x;
     const double dy = b.y - a.y;
@@ -164,6 +201,9 @@ double SquaredDistanceToSegment(const atpps::Point& p, const atpps::Point& a, co
 }
 
 // This returns the signed area of triangle a-b-c used for local area-change scoring
+//------------------------------------------------------------------------------
+// Computes signed triangle area (used for local error estimation).
+//------------------------------------------------------------------------------
 double SignedTriangleArea(const atpps::Point& a, const atpps::Point& b, const atpps::Point& c) {
     const double cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
     return 0.5 * cross;
@@ -318,6 +358,9 @@ double SelectSingleRingProgressBandValue(
 }
 
 // This builds deterministic local metrics for one candidate removal
+//------------------------------------------------------------------------------
+// Builds a removal candidate with local error metrics.
+//------------------------------------------------------------------------------
 RemovalCandidate BuildCandidate(
     const atpps::Ring& ring,
     const std::size_t ringIndex,
