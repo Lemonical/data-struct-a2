@@ -76,8 +76,3 @@ Provided datasets and expected outputs are in `test_cases/`.
 - Input files: `test_cases/input_*.csv`
 - Expected files: `test_cases/output_*.txt`
 - Dataset overview: `test_cases/README.md`
-
-## Notes
-
-- The implementation is deterministic for a fixed binary and environment
-- The repository currently includes assignment planning notes in `IMPLEMENTATION_PLAN.md`
